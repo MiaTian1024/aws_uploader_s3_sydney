@@ -4,3 +4,4 @@ python-multipart
 boto3
 pydantic-settings
 python-dotenv
+requests

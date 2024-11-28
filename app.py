@@ -6,6 +6,7 @@ import os
 from typing import Optional
 from pydantic_settings import BaseSettings
 from datetime import datetime
+from mangum import Mangum
 
 class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
 
 app = FastAPI()
 settings = Settings()
+handler = Mangum(app)
 
 # Initialize S3 client
 s3_client = boto3.client(

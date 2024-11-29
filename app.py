@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str
     S3_REGION: str = "ap-southeast-2"
     ALLOWED_ORIGINS: str = "*"
-    BUBBLE_APP_URL: str  # Your Bubble app URL
+    BUBBLE_APP_URL: str  
 
     class Config:
         env_file = ".env"
@@ -42,19 +42,6 @@ s3_client = boto3.client(
     aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
     region_name=settings.S3_REGION
 )
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
-    """Extract and verify the Bubble token"""
-    try:
-        token = credentials.credentials
-        # Extract the user ID from the Bubble token (bus|userId|timestamp)
-        user_id = token.split('|')[1]
-        return user_id
-    except Exception as e:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Invalid token format: {str(e)}"
-        )
 
 async def verify_bubble_token(credentials: HTTPAuthorizationCredentials = Security(security)) -> Dict:
     """Verify the Bubble authentication token"""
@@ -132,8 +119,8 @@ async def verify_bubble_token(credentials: HTTPAuthorizationCredentials = Securi
 @app.post("/upload/")
 async def upload_file(
     file: UploadFile = File(...),
+    filename: str = None, 
     folder: Optional[str] = None,
-    # user_id: str = Depends(get_current_user)
     user_data: Dict = Depends(verify_bubble_token)
 ):
     try:
@@ -145,17 +132,33 @@ async def upload_file(
                 detail="User ID not found in verified data"
             )
         print(user_id)
-        # user_email = user_data.get('email', 'unknown')  # User email if available
 
-        # Get user ID from token
-        # user_id = await get_current_user(request)
-        
-        # Generate a unique file name using timestamp and user ID
+        # Generate timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        original_filename = file.filename
-        file_extension = os.path.splitext(original_filename)[1]
-        new_filename = f"{user_id}/{timestamp}{file_extension}"
-        # new_filename = f"{user_id}/{timestamp}{original_filename}"
+
+        # Get original file extension
+        original_extension = os.path.splitext(file.filename)[1]
+
+        # Handle custom filename
+        if filename:
+            # Remove any potentially problematic characters
+            safe_filename = ''.join(c for c in filename if c.isalnum() or c in '._- ')
+            
+            # Check if custom filename has an extension
+            filename_base, custom_extension = os.path.splitext(safe_filename)
+            
+            # If no extension in custom filename, add the original extension
+            if not custom_extension:
+                safe_filename = f"{filename_base}{original_extension}"
+        else:
+            filename_base, extension = os.path.splitext(file.filename)
+            safe_filename = file.filename
+            
+        # Add timestamp to filename while preserving the extension
+        timestamped_filename = f"{os.path.splitext(safe_filename)[0]}_{timestamp}{original_extension}"
+        
+        # Generate new filename with user ID path
+        new_filename = f"{user_id}/{timestamped_filename}"
         
         # If folder is specified, prepend it to the filename
         if folder:
@@ -172,8 +175,9 @@ async def upload_file(
             ContentType=file.content_type,
             ACL='public-read',
             Metadata={
-                'user_id': user_id,
-                # 'user_email': user_email,
+                'user_id': str(user_id),
+                'original_filename': file.filename,
+                'custom_filename': safe_filename,
                 'upload_timestamp': timestamp
             }
         )
@@ -185,11 +189,12 @@ async def upload_file(
             status_code=200,
             content={
                 "message": "File uploaded successfully",
-                "filename": new_filename,
+                "filename": safe_filename,
+                "timestamped_filename": timestamped_filename,
+                "path": new_filename,
                 "url": file_url,
                 "user_id": user_id,
-                # "user_email": user_email,
-                "upload_timestamp": timestamp
+                "timestamp": timestamp
             }
         )
         

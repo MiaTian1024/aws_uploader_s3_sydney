@@ -76,8 +76,8 @@ async def verify_bubble_token(credentials: HTTPAuthorizationCredentials = Securi
         )
 
         # Print response for debugging
-        print(f"Verification Response Status: {response.status_code}")
-        print(f"Verification Response: {response.text}")
+        # print(f"Verification Response Status: {response.status_code}")
+        # print(f"Verification Response: {response.text}")
         
         if response.status_code != 200:
             raise HTTPException(
@@ -122,7 +122,8 @@ async def upload_file(
     file: UploadFile = File(...),
     filename: str = None, 
     folder: Optional[str] = None,
-    user_data: Dict = Depends(verify_bubble_token)
+    user_data: Dict = Depends(verify_bubble_token),
+    credentials: HTTPAuthorizationCredentials = Security(security)  
 ):
     try:
         # Get user ID from verified user data
@@ -189,6 +190,36 @@ async def upload_file(
         # Generate permanent S3 URL
         file_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.S3_REGION}.amazonaws.com/{new_filename}"
         
+        # Save to Bubble after successful S3 upload
+        bubble_url = settings.BUBBLE_APP_URL
+        if not bubble_url.startswith('https://'):
+            bubble_url = f"https://{bubble_url.replace('http://', '')}"
+        bubble_save_url = f"{bubble_url}/api/1.1/wf/save-s3-url"
+
+        token = credentials.credentials  # Get the original token
+
+        headers = {
+            'Authorization': f"Bearer {token}",
+            'Content-Type': 'application/json'
+        }
+
+        print(f"Headers being sent: {headers}")
+            
+        bubble_payload = {
+            "file_name": safe_filename,
+            "file_url": file_url,
+            "user_id": user_id
+        }
+            
+        bubble_response = requests.post(
+            bubble_save_url,
+            headers=headers,
+            json=bubble_payload
+        )
+            
+        if bubble_response.status_code != 200:
+            print(f"Warning: Failed to save to Bubble. Status: {bubble_response.status_code}, Response: {bubble_response.text}")
+            
         return JSONResponse(
             status_code=200,
             content={
@@ -199,7 +230,9 @@ async def upload_file(
                 "url": file_url,
                 "user_id": user_id,
                 "folder": folder,
-                "timestamp": timestamp
+                "timestamp": timestamp,
+                "bubble_save_status": "success" if bubble_response.status_code == 200 else "failed",
+                "bubble_response": bubble_response.json() if bubble_response.status_code == 200 else None
             }
         )
         

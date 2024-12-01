@@ -95,6 +95,7 @@ async def verify_bubble_token(credentials: HTTPAuthorizationCredentials = Securi
             return {
                 '_id': user_data['_id'],
                 'name': user_data.get('Name'),
+                'tool': user_data.get('Tool'),
                 'email': user_data.get('authentication', {}).get('email', {}).get('email'),
                 'role': user_data.get('Role')
             }
@@ -160,6 +161,9 @@ async def upload_file(
         # Generate new filename with user ID path
         new_filename = f"{user_id}/{timestamped_filename}"
         
+        # Get user Tool from verified user data, use this as folder name
+        folder = str(user_data.get('tool'))
+        print(folder)
         # If folder is specified, prepend it to the filename
         if folder:
             new_filename = f"{folder}/{new_filename}"
@@ -194,6 +198,7 @@ async def upload_file(
                 "path": new_filename,
                 "url": file_url,
                 "user_id": user_id,
+                "folder": folder,
                 "timestamp": timestamp
             }
         )

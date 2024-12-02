@@ -12,8 +12,8 @@ from datetime import datetime
 import requests
 
 class Settings(BaseSettings):
-    AWS_ACCESS_KEY_ID: str
-    AWS_SECRET_ACCESS_KEY: str
+    # AWS_ACCESS_KEY_ID: str
+    # AWS_SECRET_ACCESS_KEY: str
     S3_BUCKET_NAME: str
     S3_REGION: str = "ap-southeast-2"
     ALLOWED_ORIGINS: str = "*"
@@ -34,15 +34,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # expose_headers=["*"],
-    # max_age=8000  # Cache preflight requests
+    expose_headers=["*"],
+    max_age=8000  # Cache preflight requests
 )
 
 # Initialize S3 client
 s3_client = boto3.client(
     's3',
-    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    # aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+    # aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
     region_name=settings.S3_REGION
 )
 
@@ -119,7 +119,7 @@ async def verify_bubble_token(credentials: HTTPAuthorizationCredentials = Securi
             detail=f"Token verification failed: {str(e)}"
         )
 
-
+@app.post("/upload")
 @app.post("/upload/")
 async def upload_file(
     file: UploadFile = File(...),

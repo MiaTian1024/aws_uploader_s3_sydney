@@ -29,10 +29,13 @@ handler = Mangum(app)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS.split(","),
+    # allow_origins=settings.ALLOWED_ORIGINS.split(","),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # expose_headers=["*"],
+    # max_age=8000  # Cache preflight requests
 )
 
 # Initialize S3 client
@@ -121,7 +124,6 @@ async def verify_bubble_token(credentials: HTTPAuthorizationCredentials = Securi
 async def upload_file(
     file: UploadFile = File(...),
     filename: str = None, 
-    folder: Optional[str] = None,
     user_data: Dict = Depends(verify_bubble_token),
     credentials: HTTPAuthorizationCredentials = Security(security)  
 ):

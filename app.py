@@ -12,8 +12,9 @@ from datetime import datetime
 import requests
 
 class Settings(BaseSettings):
-    # AWS_ACCESS_KEY_ID: str
-    # AWS_SECRET_ACCESS_KEY: str
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    AWS_SESSION_TOKEN: Optional[str] = None  # Optional with None default
     S3_BUCKET_NAME: str
     S3_REGION: str = "ap-southeast-2"
     ALLOWED_ORIGINS: str = "*"
@@ -41,8 +42,9 @@ app.add_middleware(
 # Initialize S3 client
 s3_client = boto3.client(
     's3',
-    # aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-    # aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    aws_session_token=settings.AWS_SESSION_TOKEN,
     region_name=settings.S3_REGION
 )
 
@@ -180,7 +182,6 @@ async def upload_file(
             Key=new_filename,
             Body=file_contents,
             ContentType=file.content_type,
-            ACL='public-read',
             Metadata={
                 'user_id': str(user_id),
                 'original_filename': file.filename,
@@ -249,6 +250,114 @@ async def upload_file(
             detail=f"An error occurred: {str(e)}"
         )
 
+
+@app.post("/get-upload-url")
+@app.post("/get-upload-url/")
+async def get_upload_url(
+    filename: str,
+    user_data: Dict = Depends(verify_bubble_token),
+    credentials: HTTPAuthorizationCredentials = Security(security)
+):
+    try:
+        user_id = str(user_data.get('_id'))
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in verified data")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = ''.join(c for c in filename if c.isalnum() or c in '._- ')
+        timestamped_filename = f"{os.path.splitext(safe_filename)[0]}_{timestamp}{os.path.splitext(safe_filename)[1]}"
+        
+        folder = str(user_data.get('workspace'))
+        new_filename = f"{folder}/{user_id}/{timestamped_filename}" if folder else f"{user_id}/{timestamped_filename}"
+
+        # Create S3 client with explicit credentials including session token
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            aws_session_token=settings.AWS_SESSION_TOKEN,  # This is required for temporary credentials
+            region_name=settings.S3_REGION
+        )
+
+        # Generate presigned URL with session token included
+        client_method_kwargs = {
+            'Bucket': settings.S3_BUCKET_NAME,
+            'Key': new_filename,
+        }
+
+        # Add security token to the request
+        url = s3_client.generate_presigned_url(
+            ClientMethod='put_object',
+            Params=client_method_kwargs,
+            ExpiresIn=3600,
+        )
+
+        # Generate the final S3 URL
+        final_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.S3_REGION}.amazonaws.com/{new_filename}"
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "upload_url": url,
+                "final_url": final_url,
+                "filename": safe_filename,
+                "path": new_filename,
+                "user_id": user_id,
+                "folder": folder,
+                "timestamp": timestamp
+            }
+        )
+
+    except Exception as e:
+        # Print detailed error for debugging
+        print(f"Error details: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@app.post("/confirm-upload")
+@app.post("/confirm-upload/")
+async def confirm_upload(
+    file_url: str,
+    filename: str,
+    user_data: Dict = Depends(verify_bubble_token),
+    credentials: HTTPAuthorizationCredentials = Security(security)
+):
+    try:
+        user_id = str(user_data.get('_id'))
+        
+        # Save to Bubble
+        bubble_url = settings.BUBBLE_APP_URL
+        if not bubble_url.startswith('https://'):
+            bubble_url = f"https://{bubble_url.replace('http://', '')}"
+        bubble_save_url = f"{bubble_url}/api/1.1/wf/save-s3-url"
+
+        headers = {
+            'Authorization': f"Bearer {credentials.credentials}",
+            'Content-Type': 'application/json'
+        }
+            
+        bubble_payload = {
+            "file_name": filename,
+            "file_url": file_url,
+            "user_id": user_id
+        }
+            
+        bubble_response = requests.post(
+            bubble_save_url,
+            headers=headers,
+            json=bubble_payload
+        )
+            
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Upload confirmed and saved to Bubble",
+                "bubble_save_status": "success" if bubble_response.status_code == 200 else "failed",
+                "bubble_response": bubble_response.json() if bubble_response.status_code == 200 else None
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @app.get("/health")
 async def health_check():
